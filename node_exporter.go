@@ -53,28 +53,43 @@ type handler struct {
 	logger                  *slog.Logger
 }
 
+// 函数定义：创建指标处理器
+// 参数说明：
+// - includeExporterMetrics: 是否包含导出器自身指标
+// - maxRequests: 最大并发请求数
+// - logger: 结构化日志记录器
 func newHandler(includeExporterMetrics bool, maxRequests int, logger *slog.Logger) *handler {
+	// 初始化handler结构体
 	h := &handler{
-		exporterMetricsRegistry: prometheus.NewRegistry(),
-		includeExporterMetrics:  includeExporterMetrics,
-		maxRequests:             maxRequests,
-		logger:                  logger,
+		exporterMetricsRegistry: prometheus.NewRegistry(), // 创建专属注册表
+		includeExporterMetrics:  includeExporterMetrics,   // 配置开关
+		maxRequests:             maxRequests,              // 并发控制
+		logger:                  logger,                   // 日志实例
 	}
+
+	// 注册导出器自身指标
 	if h.includeExporterMetrics {
 		h.exporterMetricsRegistry.MustRegister(
-			promcollectors.NewProcessCollector(promcollectors.ProcessCollectorOpts{}),
-			promcollectors.NewGoCollector(),
+			promcollectors.NewProcessCollector(promcollectors.ProcessCollectorOpts{}), // 进程指标
+			promcollectors.NewGoCollector(),                                           // Go运行时指标
 		)
 	}
+
+	// 初始化内部处理器
 	if innerHandler, err := h.innerHandler(); err != nil {
-		panic(fmt.Sprintf("Couldn't create metrics handler: %s", err))
+		panic(fmt.Sprintf("Couldn't create metrics handler: %s", err)) // 致命错误处理
 	} else {
-		h.unfilteredHandler = innerHandler
+		h.unfilteredHandler = innerHandler // 赋值未过滤的处理器
 	}
-	return h
+	return h // 返回初始化完成的handler
 }
 
 // ServeHTTP implements http.Handler.
+// http.Handler:
+//
+//	type Handler interface {
+//		ServeHTTP(ResponseWriter, *Request)
+//	}
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	collects := r.URL.Query()["collect[]"]
 	h.logger.Debug("collect query:", "collects", collects)
@@ -82,19 +97,22 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	excludes := r.URL.Query()["exclude[]"]
 	h.logger.Debug("exclude query:", "excludes", excludes)
 
+	// 无过滤条件，直接转发请求
 	if len(collects) == 0 && len(excludes) == 0 {
 		// No filters, use the prepared unfiltered handler.
 		h.unfilteredHandler.ServeHTTP(w, r)
 		return
 	}
 
+	// 不允许同时使用collect和exclude，返回400
 	if len(collects) > 0 && len(excludes) > 0 {
 		h.logger.Debug("rejecting combined collect and exclude queries")
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusBadRequest) // 400 Bad Request
 		w.Write([]byte("Combined collect and exclude queries are not allowed."))
 		return
 	}
 
+	// 确认最终的过滤条件
 	filters := &collects
 	if len(excludes) > 0 {
 		// In exclude mode, filtered collectors = enabled - excludeed.
@@ -108,6 +126,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// To serve filtered metrics, we create a filtering handler on the fly.
+	// 创建动态handler
 	filteredHandler, err := h.innerHandler(*filters...)
 	if err != nil {
 		h.logger.Warn("Couldn't create filtered metrics handler:", "err", err)
@@ -123,7 +142,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // fly. The former is accomplished by calling innerHandler without any arguments
 // (in which case it will log all the collectors enabled via command-line
 // flags).
+// 方法功能：创建实际处理metrics请求的Handler
 func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
+	// 1. 创建节点收集器实例
 	nc, err := collector.NewNodeCollector(h.logger, filters...)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't create collector: %s", err)
@@ -131,40 +152,47 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 
 	// Only log the creation of an unfiltered handler, which should happen
 	// only once upon startup.
+	// 2. 首次初始化（len(filters) == 0 ）时记录启用的收集器
 	if len(filters) == 0 {
 		h.logger.Info("Enabled collectors")
 		for n := range nc.Collectors {
 			h.enabledCollectors = append(h.enabledCollectors, n)
 		}
-		sort.Strings(h.enabledCollectors)
+		sort.Strings(h.enabledCollectors) // 按字母序排列
 		for _, c := range h.enabledCollectors {
-			h.logger.Info(c)
+			h.logger.Info(c) // 逐行打印收集器名称
 		}
 	}
 
+	// 3. 创建指标注册表
 	r := prometheus.NewRegistry()
 	r.MustRegister(versioncollector.NewCollector("node_exporter"))
 	if err := r.Register(nc); err != nil {
 		return nil, fmt.Errorf("couldn't register node collector: %s", err)
 	}
 
+	// 4. 构造处理器链
 	var handler http.Handler
 	if h.includeExporterMetrics {
+		// 包含导出器自身指标
 		handler = promhttp.HandlerFor(
-			prometheus.Gatherers{h.exporterMetricsRegistry, r},
+			prometheus.Gatherers{h.exporterMetricsRegistry, r}, // 合并两个注册表
 			promhttp.HandlerOpts{
-				ErrorLog:            slog.NewLogLogger(h.logger.Handler(), slog.LevelError),
-				ErrorHandling:       promhttp.ContinueOnError,
-				MaxRequestsInFlight: h.maxRequests,
+				ErrorLog:      slog.NewLogLogger(h.logger.Handler(), slog.LevelError),
+				ErrorHandling: promhttp.ContinueOnError, // 部分失败不影响整体
+
+				MaxRequestsInFlight: h.maxRequests, // 并发控制
 				Registry:            h.exporterMetricsRegistry,
 			},
 		)
 		// Note that we have to use h.exporterMetricsRegistry here to
 		// use the same promhttp metrics for all expositions.
+		// 添加指标采集监控中间件
 		handler = promhttp.InstrumentMetricHandler(
 			h.exporterMetricsRegistry, handler,
 		)
 	} else {
+		// 仅节点指标模式
 		handler = promhttp.HandlerFor(
 			r,
 			promhttp.HandlerOpts{
