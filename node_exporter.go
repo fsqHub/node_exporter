@@ -164,9 +164,11 @@ func (h *handler) innerHandler(filters ...string) (http.Handler, error) {
 		}
 	}
 
-	// 3. 创建指标注册表
+	// 3. 创建 Prometheus 注册表：-
 	r := prometheus.NewRegistry()
+	// 注册版本收集器（暴露 node_exporter 自身版本信息）
 	r.MustRegister(versioncollector.NewCollector("node_exporter"))
+	// 注册节点收集器（核心指标采集模块）：
 	if err := r.Register(nc); err != nil {
 		return nil, fmt.Errorf("couldn't register node collector: %s", err)
 	}
