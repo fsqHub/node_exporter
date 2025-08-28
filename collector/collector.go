@@ -105,6 +105,7 @@ func collectorFlagAction(collector string) func(ctx *kingpin.ParseContext) error
 // NewNodeCollector creates a new NodeCollector.
 func NewNodeCollector(logger *slog.Logger, filters ...string) (*NodeCollector, error) {
 	f := make(map[string]bool)
+	// 当filter不为空时，过滤启用的收集器
 	for _, filter := range filters {
 		enabled, exist := collectorState[filter]
 		if !exist {
@@ -122,14 +123,21 @@ func NewNodeCollector(logger *slog.Logger, filters ...string) (*NodeCollector, e
 		if !*enabled || (len(f) > 0 && !f[key]) {
 			continue
 		}
+		// 非初次创建收集器实例时
 		if collector, ok := initiatedCollectors[key]; ok {
 			collectors[key] = collector
 		} else {
+			// 初次创建新收集器实例时
+
+			// 各收集器init()时会调用registerCollector
+			// registerCollector会将工厂函数（如NewARPCollector）注册到factories
+			// 工厂函数会返回对应的收集器实例
 			collector, err := factories[key](logger.With("collector", key))
 			if err != nil {
 				return nil, err
 			}
 			collectors[key] = collector
+			// 当initiatedCollectors中不存在该收集器时，将其添加到initiatedCollectors
 			initiatedCollectors[key] = collector
 		}
 	}
@@ -138,8 +146,8 @@ func NewNodeCollector(logger *slog.Logger, filters ...string) (*NodeCollector, e
 
 // Describe implements the prometheus.Collector interface.
 func (n NodeCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- scrapeDurationDesc
-	ch <- scrapeSuccessDesc
+	ch <- scrapeDurationDesc // 注册抓取耗时指标描述符
+	ch <- scrapeSuccessDesc  // 注册抓取成功指标描述符
 }
 
 // Collect implements the prometheus.Collector interface.
@@ -148,7 +156,7 @@ func (n NodeCollector) Collect(ch chan<- prometheus.Metric) {
 	wg.Add(len(n.Collectors))
 	for name, c := range n.Collectors {
 		go func(name string, c Collector) {
-			execute(name, c, ch, n.logger)
+			execute(name, c, ch, n.logger) // 并行执行收集器
 			wg.Done()
 		}(name, c)
 	}

@@ -46,14 +46,18 @@ func init() {
 
 // NewARPCollector returns a new Collector exposing ARP stats.
 func NewARPCollector(logger *slog.Logger) (Collector, error) {
+	// 1. 初始化procfs文件系统访问
 	fs, err := procfs.NewFS(*procPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open procfs: %w", err)
 	}
 
+	// 4. 返回完整的收集器实例
 	return &arpCollector{
-		fs:           fs,
+		fs: fs,
+		// 2. 创建设备过滤器
 		deviceFilter: newDeviceFilter(*arpDeviceExclude, *arpDeviceInclude),
+		// 3. 构造指标描述符
 		entries: prometheus.NewDesc(
 			prometheus.BuildFQName(namespace, "arp", "entries"),
 			"ARP entries by device",
@@ -73,26 +77,32 @@ func getTotalArpEntries(deviceEntries []procfs.ARPEntry) map[string]uint32 {
 	return entries
 }
 
+// 使用RTNL（路由网络链接库）建立原始套接字连接，获取ARP表
 func getTotalArpEntriesRTNL() (map[string]uint32, error) {
+	// 创建原始netlink套接字连接
 	conn, err := rtnl.Dial(nil)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
+	defer conn.Close() // 确保函数返回前关闭连接
 
 	// Neighbors will also contain IPv6 neighbors, but since this is purely an ARP collector,
 	// restrict to AF_INET.
+	// 获取IPv4协议的邻居表（ARP表），过滤掉IPv6
 	neighbors, err := conn.Neighbours(nil, unix.AF_INET)
 	if err != nil {
 		return nil, err
 	}
 
 	// Map of interface name to ARP neighbor count.
+	// 创建接口名→ARP条目数的映射
 	entries := make(map[string]uint32)
 
 	for _, n := range neighbors {
 		// Skip entries which have state NUD_NOARP to conform to output of /proc/net/arp.
+		// 跳过NUD_NOARP状态条目（不需要ARP解析的邻居）
 		if n.State&unix.NUD_NOARP == 0 {
+			// 统计每个接口的ARP条目
 			entries[n.Interface.Name]++
 		}
 	}
