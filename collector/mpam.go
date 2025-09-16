@@ -36,7 +36,7 @@ var (
 	mpamCacheExclude = kingpin.Flag("collector.mpam.cache-exclude", "Regexp of mpam cache (config and usage) to exclude (mutually exclusive to cache-include).").Default("false").Bool()
 	// mpamMemInclude   = kingpin.Flag("collector.mpam.mem-include", "Regexp of mpam memory bw (config and usage) to include (mutually exclusive to mem-exclude).").String()
 	mpamMemExclude  = kingpin.Flag("collector.mpam.mem-exclude", "Regexp of mpam memory bw (config and usage) to exclude (mutually exclusive to mem-include).").Default("false").Bool()
-	resctlMountPath = kingpin.Flag("collector.mpam.resctl.path", "resctl mountpoint.").Default("/sys/fs/resctl").String()
+	resctlMountPath = kingpin.Flag("collector.mpam.resctl.path", "resctl mountpoint.").Default("/sys/fs/resctrl").String()
 
 	// DirNameInAGroup is the directory name in a group.
 	// It is used to distinguish a mpam (control or monitor) group.
