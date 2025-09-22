@@ -170,7 +170,7 @@ func getFileContent(filePath string) (string, error) {
 func (c *mpamCollector) getLabels(mpamGroupName string, mpamGroupPath string) (labels mpamMetricsCommonLabels, err error) {
 	labels.groupName = mpamGroupName
 
-	cpus, err := getFileContent(filepath.Join(mpamGroupPath, filePathForCpuListLabel))
+	cpus, err := getFileContent(filepath.Join(*resctlMountPath, mpamGroupPath, filePathForCpuListLabel))
 	if err != nil {
 		return labels, fmt.Errorf("failed to get cpus_list: %w", err)
 	}
@@ -179,7 +179,7 @@ func (c *mpamCollector) getLabels(mpamGroupName string, mpamGroupPath string) (l
 		c.logger.Info("cpus_list is empty, set to null", "group", mpamGroupName)
 	}
 	labels.cpuList = cpus
-	labels.mode, err = getFileContent(filepath.Join(mpamGroupPath, filePathForModeLabel))
+	labels.mode, err = getFileContent(filepath.Join(*resctlMountPath, mpamGroupPath, filePathForModeLabel))
 	if err != nil {
 		return labels, fmt.Errorf("failed to get mode: %w", err)
 	}

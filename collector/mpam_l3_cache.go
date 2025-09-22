@@ -53,13 +53,13 @@ func listTargetSubdirs(path string, targetPrefix string) ([]string, error) {
 }
 
 func (c *mpamCollector) updateMPAML3CacheUsage(ch chan<- prometheus.Metric, mpamGroup string, mpamGroupPath string, labels mpamMetricsCommonLabels) error {
-	L3CacheUsageDirs, err := listTargetSubdirs(filepath.Join(mpamGroupPath, dirPathForMPAMGroupData), nameKeyForCache)
+	L3CacheUsageDirs, err := listTargetSubdirs(filepath.Join(*resctlMountPath, mpamGroupPath, dirPathForMPAMGroupData), nameKeyForCache)
 	if err != nil {
 		return fmt.Errorf("failed to list L3 cache usage dirs in group %s: %w", mpamGroup, err)
 	}
 
 	for _, dir := range L3CacheUsageDirs {
-		path := filepath.Join(mpamGroupPath, dirPathForMPAMGroupData, dir, fileNameForCache)
+		path := filepath.Join(*resctlMountPath, mpamGroupPath, dirPathForMPAMGroupData, dir, fileNameForCache)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
 				continue
@@ -75,9 +75,9 @@ func (c *mpamCollector) updateMPAML3CacheUsage(ch chan<- prometheus.Metric, mpam
 		if err != nil {
 			return fmt.Errorf("failed to parse L3 cache usage data %s: %w", strValue, err)
 		}
-		id := filepath.Base(path)
+		// set the dir name as id for the metric
 		ch <- prometheus.MustNewConstMetric(
-			c.cacheUsage, prometheus.GaugeValue, float64(L3CacheUsageData), labels.groupName, id, labels.cpuList, labels.mode)
+			c.cacheUsage, prometheus.GaugeValue, float64(L3CacheUsageData), labels.groupName, dir, labels.cpuList, labels.mode)
 	}
 	return nil
 }
